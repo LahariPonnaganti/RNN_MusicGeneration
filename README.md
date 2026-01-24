@@ -28,3 +28,23 @@ new music sequences automatically based on learned note relationships.
 
 ## Project Structure
 
+
+---
+
+## How the Project Works
+
+1. Piano MIDI files are collected as the dataset.
+2. MIDI files are converted into numerical note sequences.
+3. These sequences are used to train an LSTM-based RNN model.
+4. The trained model predicts the next musical notes.
+5. Predicted notes are converted back into a MIDI file.
+
+---
+
+## How to Run the Project
+
+```bash
+pip install -r requirements.txt
+python src/data_preprocessing.py
+python src/train_model.py
+python src/generate_music.py
