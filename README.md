@@ -44,3 +44,22 @@ RNN_MusicGeneration/
 ├── requirements.txt           # Required Python libraries
 └── README.md
 ```
+
+---
+
+## How to Use / Run the Project
+
+Follow these steps to run the project on your local machine.
+
+### Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/LahariPonnaganti/RNN_MusicGeneration.git
+cd RNN_MusicGeneration
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+python src/train_model.py
+python src/generate_music.py
+output/generated_music.mid
+```
