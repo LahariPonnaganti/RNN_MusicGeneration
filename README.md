@@ -6,6 +6,7 @@ This project implements an **Automatic Music Generation system** using **Recurre
 
 The model learns sequential musical patterns from piano MIDI files and generates new music automatically.  
 Since music is inherently time-dependent, RNN–LSTM architectures are suitable for capturing pitch progression, rhythm, tempo, and note dependencies.
+To improve musical diversity and reduce repetition, the system uses temperature-based probabilistic sampling during music generation.
 
 ---
 
@@ -37,7 +38,7 @@ RNN_MusicGeneration/
 │   ├── data_preprocessing.py  # Converts MIDI files to note sequences
 │   ├── model.py               # LSTM model architecture
 │   ├── train_model.py         # Model training script
-│   └── generate_music.py      # Music generation script
+│   └── generate_music.py      # Music generation using temperature-based sampling
 ├── output/
 │   └── generated_music.mid    # Generated music output
 ├── best_model.h5              # Trained model weights
@@ -49,17 +50,40 @@ RNN_MusicGeneration/
 
 ## How to Use / Run the Project
 
-Follow these steps to run the project on your local machine.
+Follow these steps to run the project on your local machine.  
+During generation, the next musical note is selected using temperature-based probability sampling instead of greedy prediction.
 
 ### Step 1: Clone the Repository
 
 ```bash
 git clone https://github.com/LahariPonnaganti/RNN_MusicGeneration.git
 cd RNN_MusicGeneration
+```
+
+### Step 2: Create and Activate Virtual Environment (Windows)
+
+```bash
 python -m venv venv
 venv\Scripts\activate
+```
+
+### Step 3: Install Required Dependencies
+
+```bash
 pip install -r requirements.txt
-python src/train_model.py
+```
+
+### Step 4: Generate Music
+
+```bash
 python src/generate_music.py
+```
+
+### Step 5: Output
+
+The generated music file will be saved at:
+
+```text
 output/generated_music.mid
+
 ```
