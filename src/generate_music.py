@@ -1,104 +1,128 @@
 import os
 import numpy as np
-import random
+import pickle
+
+from music21 import converter, instrument, note, chord, stream
 from tensorflow.keras.models import load_model
-from music21 import note, chord, stream
 
-from data_preprocessing import load_midi_files, prepare_sequences
+# =========================
+# PATHS
+# =========================
+MODEL_PATH = "model/emotion_music_model.h5"
+MAPPING_PATH = "data/note_to_int.pkl"
+OUTPUT_DIR = "output"
 
+SEQUENCE_LENGTH = 50
 
-def sample_with_temperature(preds, temperature=1.0):
-    preds = np.asarray(preds).astype("float64")
-    preds = np.log(preds + 1e-8) / temperature
-    exp_preds = np.exp(preds)
-    preds = exp_preds / np.sum(exp_preds)
-    return np.random.choice(len(preds), p=preds)
+EMOTION_MAP = {
+    "happy": 0,
+    "sad": 1,
+    "calm": 2,
+    "energetic": 3,
+    "angry": 4
+}
 
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-def generate_music(
-    midi_dir="data/midi",
-    model_path="best_model.h5",
-    output_path="output/generated_music.mid",
-    n_generate=200,
-    temperature=0.8,
-):
-    # -----------------------------
-    # 0. Ensure output directory
-    # -----------------------------
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+# =========================
+# LOAD MODEL + MAPPINGS
+# =========================
+model = load_model(MODEL_PATH)
 
-    # -----------------------------
-    # 1. Load data
-    # -----------------------------
-    notes = load_midi_files(midi_dir, max_notes=15000)
-    X, _, pitchnames = prepare_sequences(notes)
+with open(MAPPING_PATH, "rb") as f:
+    note_to_int = pickle.load(f)
 
-    vocab_size = len(pitchnames)
+int_to_note = {v: k for k, v in note_to_int.items()}
+VOCAB_SIZE = len(note_to_int)
 
-    # -----------------------------
-    # 2. Load trained model
-    # -----------------------------
-    model = load_model(model_path)
+# =========================
+# EXTRACT NOTES FROM MIDI
+# =========================
+def extract_notes_from_midi(midi_path):
+    midi = converter.parse(midi_path)
+    notes = []
 
-    # -----------------------------
-    # 3. Pick random seed
-    # -----------------------------
-    start_index = random.randint(0, len(X) - 1)
-    pattern = X[start_index].copy()
+    parts = instrument.partitionByInstrument(midi)
+    elements = parts.parts[0].recurse() if parts else midi.flat.notes
 
-    print("Seed pattern shape:", pattern.shape)  # should be (seq_len, 1)
+    for el in elements:
+        if isinstance(el, note.Note):
+            notes.append(str(el.pitch.midi))
+        elif isinstance(el, chord.Chord):
+            notes.append(".".join(str(n.pitch.midi) for n in el.notes))
 
-    int_to_note = {i: str(n) for i, n in enumerate(pitchnames)}
-    prediction_output = []
+    return notes
 
-    # -----------------------------
-    # 4. Generate notes
-    # -----------------------------
-    for _ in range(n_generate):
-        prediction_input = pattern.reshape(
-            1, pattern.shape[0], pattern.shape[1]
-        )
+# =========================
+# PREPARE SEED
+# =========================
+def prepare_seed(notes):
+    seed = [note_to_int[n] for n in notes if n in note_to_int]
 
-        prediction = model.predict(prediction_input, verbose=0)[0]
+    if len(seed) < SEQUENCE_LENGTH:
+        raise ValueError("Uploaded MIDI too short or incompatible.")
 
-        index = sample_with_temperature(prediction, temperature)
-        index = index % vocab_size
+    return seed[:SEQUENCE_LENGTH]
 
-        prediction_output.append(int_to_note[index])
+# =========================
+# GENERATE MUSIC
+# =========================
+def generate_from_user_midi(input_midi_path, emotion, generate_length=200):
+    emotion_id = EMOTION_MAP[emotion]
 
-        # integer sliding window (IMPORTANT)
-        pattern = np.append(pattern[1:], [[index]], axis=0)
+    # ---------- Seed ----------
+    if input_midi_path:
+        raw_notes = extract_notes_from_midi(input_midi_path)
+        pattern = prepare_seed(raw_notes)
+    else:
+        # fallback random seed
+        pattern = np.random.randint(0, VOCAB_SIZE, SEQUENCE_LENGTH).tolist()
 
-    # -----------------------------
-    # 5. Convert to MIDI
-    # -----------------------------
-    offset = 0
+    generated = []
+
+    # ---------- Generation ----------
+    for _ in range(generate_length):
+        x = np.reshape(pattern, (1, SEQUENCE_LENGTH, 1)) / float(VOCAB_SIZE)
+        e = np.array([[emotion_id]])
+
+        prediction = model.predict([x, e], verbose=0)
+        index = np.argmax(prediction)
+
+        generated.append(index)
+        pattern.append(index)
+        pattern = pattern[1:]
+
+    # ---------- Convert to MIDI ----------
     output_notes = []
+    offset = 0
 
-    for pattern in prediction_output:
-        try:
-            if "." in pattern:
-                notes_in_chord = pattern.split(".")
-                notes_list = [note.Note(int(n)) for n in notes_in_chord]
-                new_chord = chord.Chord(notes_list)
-                new_chord.offset = offset
-                output_notes.append(new_chord)
-            else:
-                new_note = note.Note(pattern)
-                new_note.offset = offset
-                output_notes.append(new_note)
+    for idx in generated:
+        token = int_to_note[idx]
 
-            offset += 0.5
+        if "." in token:
+            chord_notes = []
+            for n in token.split("."):
+                pitch = int(n)
+                if 21 <= pitch <= 108:
+                    chord_notes.append(note.Note(pitch))
+            if chord_notes:
+                c = chord.Chord(chord_notes)
+                c.offset = offset
+                output_notes.append(c)
+        else:
+            pitch = int(token)
+            if 21 <= pitch <= 108:
+                n = note.Note(pitch)
+                n.offset = offset
+                output_notes.append(n)
 
-        except Exception:
-            # skip invalid notes safely
-            continue
+        offset += 0.5
 
     midi_stream = stream.Stream(output_notes)
-    midi_stream.write("midi", fp=output_path)
 
-    print("🎵 Music generated successfully:", output_path)
+    output_path = os.path.join(
+        OUTPUT_DIR, f"generated_{emotion}.mid"
+    )
+    midi_stream.write("midi", output_path)
 
-
-if __name__ == "__main__":
-    generate_music()
+    return output_path

@@ -1,57 +1,89 @@
 import os
+import pickle
 import numpy as np
-from music21 import converter, note, chord
+from music21 import converter, instrument, note, chord
 
+DATA_DIR = "data/midi"
+SEQUENCE_LENGTH = 50
+OUTPUT_DIR = "data"
 
-def load_midi_files(midi_folder, max_notes=15000):
-    notes = []
+EMOTION_MAP = {
+    "happy": 0,
+    "sad": 1,
+    "calm": 2,
+    "energetic": 3,
+    "angry": 4
+}
 
-    for file in os.listdir(midi_folder):
-        if file.endswith(".mid"):
-            file_path = os.path.join(midi_folder, file)
-            midi = converter.parse(file_path)
+all_notes = []
+all_emotions = []
 
-            for element in midi.flat.notes:
-                if isinstance(element, note.Note):
-                    notes.append(str(element.pitch))
-                elif isinstance(element, chord.Chord):
-                    notes.append('.'.join(str(n) for n in element.normalOrder))
+print("🔄 Starting preprocessing...")
 
-                if len(notes) >= max_notes:
-                    return notes
+# =========================
+# READ MIDI FILES
+# =========================
+for emotion in os.listdir(DATA_DIR):
+    emotion_path = os.path.join(DATA_DIR, emotion)
 
-    return notes
+    if emotion not in EMOTION_MAP:
+        continue
 
+    for file in os.listdir(emotion_path):
+        if not file.endswith(".mid"):
+            continue
 
-def prepare_sequences(notes, sequence_length=50):
-    pitchnames = sorted(set(notes))
-    note_to_int = {note: number for number, note in enumerate(pitchnames)}
+        path = os.path.join(emotion_path, file)
+        print(f"Processing: {path}")
 
-    network_input = []
-    network_output = []
+        midi = converter.parse(path)
+        parts = instrument.partitionByInstrument(midi)
+        elements = parts.parts[0].recurse() if parts else midi.flat.notes
 
-    for i in range(len(notes) - sequence_length):
-        seq_in = notes[i:i + sequence_length]
-        seq_out = notes[i + sequence_length]
+        for el in elements:
+            if isinstance(el, note.Note):
+                all_notes.append(str(el.pitch.midi))
+                all_emotions.append(EMOTION_MAP[emotion])
 
-        network_input.append([note_to_int[n] for n in seq_in])
-        network_output.append(note_to_int[seq_out])
+            elif isinstance(el, chord.Chord):
+                all_notes.append(".".join(str(n.pitch.midi) for n in el.notes))
+                all_emotions.append(EMOTION_MAP[emotion])
 
-    network_input = np.reshape(
-        network_input,
-        (len(network_input), sequence_length, 1)
-    )
+print(f"Total notes collected: {len(all_notes)}")
 
-    network_input = network_input / float(len(pitchnames))
+# =========================
+# CREATE MAPPINGS
+# =========================
+unique_notes = sorted(set(all_notes))
+note_to_int = {note: i for i, note in enumerate(unique_notes)}
 
-    return network_input, np.array(network_output), pitchnames
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+with open(os.path.join(OUTPUT_DIR, "note_to_int.pkl"), "wb") as f:
+    pickle.dump(note_to_int, f)
 
+print("✅ note_to_int.pkl saved successfully")
 
-if __name__ == "__main__":
-    notes = load_midi_files("data/midi", max_notes=15000)
-    X, y, pitchnames = prepare_sequences(notes)
+# =========================
+# PREPARE SEQUENCES
+# =========================
+network_input = []
+network_output = []
+emotion_labels = []
 
-    print("Total notes used:", len(notes))
-    print("Unique notes:", len(pitchnames))
-    print("Input shape:", X.shape)
-    print("Output shape:", y.shape)
+for i in range(len(all_notes) - SEQUENCE_LENGTH):
+    seq_in = all_notes[i:i + SEQUENCE_LENGTH]
+    seq_out = all_notes[i + SEQUENCE_LENGTH]
+
+    network_input.append([note_to_int[n] for n in seq_in])
+    network_output.append(note_to_int[seq_out])
+    emotion_labels.append(all_emotions[i])
+
+network_input = np.array(network_input)
+network_output = np.array(network_output)
+emotion_labels = np.array(emotion_labels)
+
+np.save(os.path.join(OUTPUT_DIR, "network_input.npy"), network_input)
+np.save(os.path.join(OUTPUT_DIR, "network_output.npy"), network_output)
+np.save(os.path.join(OUTPUT_DIR, "emotion_labels.npy"), emotion_labels)
+
+print("✅ Preprocessing complete")

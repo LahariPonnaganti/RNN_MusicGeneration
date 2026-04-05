@@ -1,44 +1,48 @@
 import numpy as np
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.callbacks import ModelCheckpoint
+from model import create_emotion_conditioned_model
 
-from data_preprocessing import load_midi_files, prepare_sequences
-from model import create_model
+SEQUENCE_LENGTH = 50
 
+# =========================
+# LOAD DATA
+# =========================
+X_notes = np.load("data/network_input.npy")
+y_notes = np.load("data/network_output.npy")
+emotion_labels = np.load("data/emotion_labels.npy")
 
-def train():
-    # 1. Load and preprocess data
-    notes = load_midi_files("data/midi", max_notes=15000)
-    X, y, pitchnames = prepare_sequences(notes)
+n_vocab = int(np.max(X_notes)) + 1
 
-    n_vocab = len(pitchnames)
+X_notes = np.reshape(X_notes, (X_notes.shape[0], SEQUENCE_LENGTH, 1))
+X_notes = X_notes / float(n_vocab)
 
-    # 2. Convert output labels to categorical
-    y = to_categorical(y, num_classes=n_vocab)
+y_notes = to_categorical(y_notes, num_classes=n_vocab)
 
-    # 3. Create model
-    model = create_model(
-        input_shape=(X.shape[1], X.shape[2]),
-        n_vocab=n_vocab
-    )
+# =========================
+# BUILD MODEL
+# =========================
+model = create_emotion_conditioned_model(
+    note_input_shape=(SEQUENCE_LENGTH, 1),
+    emotion_vocab_size=5,
+    note_vocab_size=n_vocab
+)
 
-    # 4. Save best model during training
-    checkpoint = ModelCheckpoint(
-        "best_model.h5",
-        monitor="loss",
-        save_best_only=True,
-        mode="min"
-    )
+# =========================
+# TRAIN
+# =========================
+checkpoint = ModelCheckpoint(
+    "model/emotion_music_model.h5",
+    monitor="loss",
+    save_best_only=True
+)
 
-    # 5. Train the model
-    model.fit(
-        X,
-        y,
-        epochs=30,
-        batch_size=64,
-        callbacks=[checkpoint]
-    )
+model.fit(
+    [X_notes, emotion_labels],
+    y_notes,
+    epochs=50,
+    batch_size=64,
+    callbacks=[checkpoint]
+)
 
-
-if __name__ == "__main__":
-    train()
+print("✅ Model training complete")

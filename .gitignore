@@ -1,5 +1,7 @@
-venv/
-__pycache__/
-*.pyc
-RNN_MusicGeneration/
-output/
+venv/ 
+data/ 
+*.npy 
+*.h5 
+*.sf2 
+__pycache__/ 
+output/ 

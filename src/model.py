@@ -1,25 +1,48 @@
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
-def create_model(input_shape, n_vocab):
-    model = Sequential()
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import (
+    Input, LSTM, Dense, Dropout,
+    Embedding, Flatten, Concatenate
+)
 
-    model.add(
-        LSTM(
-            256,
-            input_shape=input_shape,
-            return_sequences=True
-        )
+def create_emotion_conditioned_model(note_input_shape, emotion_vocab_size, note_vocab_size):
+    """
+    note_input_shape  : (SEQUENCE_LENGTH, 1)
+    emotion_vocab_size: number of emotions (5)
+    note_vocab_size   : total unique notes
+    """
+
+    # =========================
+    # NOTE INPUT (MUSIC)
+    # =========================
+    notes_input = Input(shape=note_input_shape, name="notes_input")
+    x = LSTM(128, return_sequences=True)(notes_input)
+    x = Dropout(0.3)(x)
+    x = LSTM(128)(x)
+
+    # =========================
+    # EMOTION INPUT
+    # =========================
+    emotion_input = Input(shape=(1,), name="emotion_input")
+    e = Embedding(emotion_vocab_size, 8)(emotion_input)
+    e = Flatten()(e)
+    e = Dense(128, activation="relu")(e)
+
+    # =========================
+    # MERGE MUSIC + EMOTION
+    # =========================
+    combined = Concatenate()([x, e])
+    combined = Dense(256, activation="relu")(combined)
+
+    output = Dense(note_vocab_size, activation="softmax")(combined)
+
+    model = Model(
+        inputs=[notes_input, emotion_input],
+        outputs=output
     )
-    model.add(Dropout(0.3))
-
-    model.add(LSTM(256))
-    model.add(Dropout(0.3))
-
-    model.add(Dense(n_vocab, activation='softmax'))
 
     model.compile(
-        loss='categorical_crossentropy',
-        optimizer='adam'
+        loss="categorical_crossentropy",
+        optimizer="adam"
     )
 
     return model
